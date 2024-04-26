@@ -43,7 +43,7 @@ def connect(fd):
     cursor.close()
     conn.close()
     
-    
+#def changeSpeed(worldFD):
     
 def rec_connected(fd):
     print("before recv!")

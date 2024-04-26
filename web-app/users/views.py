@@ -9,13 +9,19 @@ from .models import *
 import os
 from django.core.files import File
 from django.shortcuts import get_object_or_404
+from django.shortcuts import get_list_or_404
+from django.utils import timezone
+from datetime import timedelta
+from django.contrib.auth.views import LoginView
 from .mysocket import *
 from . import web_backend_pb2 as web
 import time
 from collections import defaultdict
 from django.db import transaction
-
-
+from mailjet_rest import Client
+from django.contrib.auth.views import LoginView
+from django.utils.http import url_has_allowed_host_and_scheme
+from django.shortcuts import redirect
 
 
 while True:
@@ -155,12 +161,83 @@ def view_cart_order(request):
         'form': form
     })
 
+# @login_required
+# def order_confirmation(request):
+   
+#     cart_order = get_object_or_404(CartOrder, user=request.user, is_open=True)
+#     order_items = OrderItem.objects.filter(cart_order=cart_order)
+
+#     warehouse_groups = defaultdict(list)
+#     enough_items = defaultdict(list)
+#     short_items = []
+
+#     for item in order_items:
+#         if item.quantity <= item.product.quantity:
+#             item.status = 'enough'
+#             warehouse_groups[item.product.warehouse_id].append(item)
+#             item.save()
+#         else:
+#             item.status = 'short'
+#             item.save()
+#             short_items.append(item)
+#             reqq_msg = web.WCommands()
+#             more_msg = reqq_msg.askmore.add()
+#             more_msg.productid = item.product.id
+#             more_msg.count = item.quantity - item.product.quantity
+#             seqNum = ack_list.add_request()  
+#             more_msg.seqnum = seqNum
+
+#             sendRequest(back_fd, reqq_msg)
+#             print("Send askmore request!")
+        
+
+#     # Create an Order for each group of items from the same warehouse where all items are 'enough'
+#     with transaction.atomic():  # Use a transaction to ensure data integrity
+#         for warehouse_id, items in warehouse_groups.items():
+#             if all(item.status == 'enough' for item in items):
+#                 new_order = Order(
+#                     user = request.user,
+#                     status='pending',
+#                     des_x=cart_order.des_x,
+#                     des_y=cart_order.des_y,
+#                     upsUsername=cart_order.ups_name
+#                 )
+#                 new_order.save()
+#                 for item in items:
+#                     item.order_id = new_order
+#                     item.save()
+#                 enough_items[new_order.id] = items
+#                 print("new_order.id: ", new_order.id)
+
+#                 req_msg = web.WCommands()
+#                 buy_msg = req_msg.buy.add()
+#                 buy_msg.orderid = new_order.id
+#                 seqNum = ack_list.add_request()  
+#                 buy_msg.seqnum = seqNum
+
+#                 sendRequest(back_fd, req_msg)
+#                 print("Send buy request!")
+#                 # send email
+#                 #sendEmail("yxs0327@gmail.com", "Admin", str(request.user.email), request.user.username)
+#                 print("Send email!")
+
+#     enough_items = dict(enough_items) 
+#     print("enough_items", enough_items)
+#     print("short_items", short_items)
+#     sendEmail("yxs0327@gmail.com", "Admin", str(request.user.email), request.user.username)
+#     return render(request, 'order_confirmation.html', {
+#         'short_items': short_items,
+#         'enough_items': enough_items,
+#         'cart_order': cart_order
+#     })
+
+
 @login_required
 def order_confirmation(request):
-   
-    cart_order = get_object_or_404(CartOrder, user=request.user, is_open=True)
+    sessionid = request.COOKIES.get('sessionid')
+    cart_order = get_object_or_404(CartOrder, cookie=sessionid, user=request.user, is_open=True)
     order_items = OrderItem.objects.filter(cart_order=cart_order)
-
+    print("order_confirm", cart_order.des_x, cart_order.des_y, cart_order.ups_name)
     warehouse_groups = defaultdict(list)
     enough_items = defaultdict(list)
     short_items = []
@@ -197,11 +274,12 @@ def order_confirmation(request):
                     upsUsername=cart_order.ups_name
                 )
                 new_order.save()
+                
                 for item in items:
                     item.order_id = new_order
                     item.save()
                 enough_items[new_order.id] = items
-                print("new_order.id: ", new_order.id)
+                print("new_order.id: ", new_order.id, new_order.des_x, new_order.des_y, new_order.upsUsername)
 
                 req_msg = web.WCommands()
                 buy_msg = req_msg.buy.add()
@@ -211,9 +289,14 @@ def order_confirmation(request):
 
                 sendRequest(back_fd, req_msg)
                 print("Send buy request!")
+                
+                
     enough_items = dict(enough_items) 
     print("enough_items", enough_items)
     print("short_items", short_items)
+    sendEmail("yxs0327@gmail.com", "Admin", str(request.user.email), request.user.username)
+    print("Send email!")
+    dump_cart(request)
     return render(request, 'order_confirmation.html', {
         'short_items': short_items,
         'enough_items': enough_items,
@@ -222,28 +305,224 @@ def order_confirmation(request):
 
 
 def my_order_view(request):
-    orders = Order.objects.filter(user=request.user)  
-
+    #orders = Order.objects.filter(user=request.user)
+    orders = Order.objects.filter(user=request.user).prefetch_related('order_items__product')
     
     if request.method == 'POST':
         form = UpdateOrderForm(request.POST)
         if form.is_valid():
             order_id = form.cleaned_data['order_id']
             upsUsername = form.cleaned_data['upsUsername']
-            order = Order.objects.get(id=order_id)
-            order.upsUsername = upsUsername
-            order.save()
+            try:
+                order = Order.objects.get(id=order_id, user=request.user)
+                order.upsUsername = upsUsername
+                order.status = 'pending'
+                order.save()
 
-            req_msg = web.WCommands()
-            buy_msg = req_msg.buy.add()
-            buy_msg.orderid = order_id
-            seqNum = ack_list.add_request()  
-            buy_msg.seqnum = seqNum
+                req_msg = web.WCommands()
+                buy_msg = req_msg.buy.add()
+                buy_msg.orderid = order_id
+                seqNum = ack_list.add_request()  
+                buy_msg.seqnum = seqNum
 
-            sendRequest(back_fd, req_msg)
-            print("Send buy request!(after revise username)")
-            return redirect('user_home') 
+                sendRequest(back_fd, req_msg)
+                print("Send buy request!(after revise username)")
+                return redirect('user_home')
+            except Order.DoesNotExist:
+                # Handle the case where the order does not exist
+                form.add_error(None, 'Order does not exist or you do not have permission to update it.') 
     else:
         form = UpdateOrderForm()
 
     return render(request, 'myorder.html', {'orders': orders, 'form': form})
+    
+
+def sendEmail(adminEmail, adminName, userEmail, userName):
+    api_key = '2b3c16d686e729b76eeacb6ce417b7b1'
+    api_secret = '6c4b3e2da82b3ffb2d3252fd8742ecda'
+    mailjet = Client(auth=(api_key, api_secret), version='v3.1')
+    data = {
+    'Messages': [
+        {
+        "From": {
+            "Email": adminEmail,
+            "Name": adminName,
+        },
+        "To": [
+            {
+            "Email": userEmail,
+            "Name": userName,
+            }
+        ],
+        "Subject": "MiniAmazon Order Confirmation",
+        "TextPart": "Your order has been successfully placed!",
+        "CustomID": "AppGettingStartedTest"
+        }
+    ]
+    }
+    result = mailjet.send.create(data=data)
+    print(result.status_code)
+    print(result.json())    
+
+def search_products(request):
+    query = request.GET.get('search_input')
+    products = Product.objects.all()
+    if query:
+        products = Product.objects.filter(description__icontains=query)
+
+    return render(request, 'shopping.html', {'products': products})
+
+# class CustomLoginView(LoginView):
+#     template_name = 'login.html'
+
+#     def form_valid(self, form):
+#         # Regenerate session ID to prevent session fixation
+#         self.request.session.cycle_key()
+#         redirect_to = 'user_home/'
+        
+#         return super().form_valid(form)
+
+# def add_cart(request):
+    
+#     sessionid = request.COOKIES.get('sessionid')
+
+#     cart_order, created = CartOrder.objects.get_or_create(cookie=sessionid, user=request.user, is_open=True)
+#     product_id = request.POST.get('product_id')
+#     quantity = int(request.POST.get('quantity', 0))
+    
+#     print("quantity, ", quantity, product_id)
+#     if quantity > 0:
+#         product = Product.objects.get(id=product_id)
+#         OrderItem.objects.create(cart_order=cart_order, product=product, quantity=quantity)
+#             # order_item.save()
+    
+#     cart_order.save()
+#     return render(request, 'shopping.html', {'products': Product.objects.all()})
+
+  
+# def review_cart(request):
+#     session_id = request.COOKIES.get('sessionid')
+#     cart_orders = get_list_or_404(CartOrder, user=request.user, cookie=session_id)
+#     print("Review session:", session_id, cart_orders)
+#     cart_order = cart_orders[-1]
+#     if request.method == 'POST':
+#         form = DestinationForm(request.POST, instance=cart_order)
+#         if form.is_valid():
+#             form.save()
+#             return redirect('order_confirmation')  
+#     else:
+#         form = DestinationForm(instance=cart_order)
+
+#     # Collect all order items from all cart orders
+#     order_items = []
+#     for cart_order in cart_orders:
+#         items = OrderItem.objects.filter(cart_order=cart_order)
+#         order_items.extend(items)
+#         print("Items in cart:", items)
+
+#     return render(request, 'cart_order.html', {
+#         'order_items': order_items,
+#         'form': form  
+#     })
+
+# def review_cart(request):
+#     session_id = request.COOKIES.get('sessionid')
+#     cart_orders = CartOrder.objects.filter(user=request.user, cookie=session_id).order_by('-id')
+
+#     if not cart_orders.exists():
+#         messages.info(request, "No cart order found.")  # Optional: inform the user via message
+#         return render(request, 'cart_order.html', {
+#             'order_items': [],
+#             'form': None
+#         })
+
+#     cart_order = cart_orders.first()  # Safely getting the most recent cart order
+#     form = DestinationForm(request.POST or None, instance=cart_order)
+
+#     if request.method == 'POST' and form.is_valid():
+#         form.save()
+#         return redirect('order_confirmation')
+
+#     order_items = OrderItem.objects.filter(cart_order__in=cart_orders)
+#     if not order_items.exists():
+#         messages.info(request, "Your cart is empty.")  # Optional: inform the user
+#         return render(request, 'cart_order.html', {
+#             'order_items': [],
+#             'form': form
+#         })
+
+#     return render(request, 'cart_order.html', {
+#         'order_items': order_items,
+#         'form': form
+#     })
+
+class CustomLoginView(LoginView):
+    form_class = CaptchaAuthenticationForm
+    template_name = 'login.html'
+
+    def form_valid(self, form):
+        # Regenerate session ID to prevent session fixation
+        self.request.session.cycle_key()
+        redirect_to = 'user_home/'
+        
+        return super().form_valid(form)
+    
+def add_cart(request):
+    
+    sessionid = request.COOKIES.get('sessionid')
+
+    cart_order, created = CartOrder.objects.get_or_create(cookie=sessionid, user=request.user, is_open=True)
+    product_id = request.POST.get('product_id')
+    quantity = int(request.POST.get('quantity', 0))
+    
+    print("quantity, ", quantity, product_id)
+    if quantity > 0:
+        product = Product.objects.get(id=product_id)
+        OrderItem.objects.create(cart_order=cart_order, product=product, quantity=quantity)
+            # order_item.save()
+    
+    cart_order.save()
+    return render(request, 'shopping.html', {'products': Product.objects.all()})
+
+def review_cart(request):
+    session_id = request.COOKIES.get('sessionid')
+    cart_orders = CartOrder.objects.filter(user=request.user, cookie=session_id).order_by('-id')
+
+    if not cart_orders.exists():
+        messages.info(request, "No cart order found.")  # Optional: inform the user via message
+        return render(request, 'cart_order.html', {
+            'order_items': [],
+            'form': None
+        })
+
+    cart_order = cart_orders.first()  # Safely getting the most recent cart order
+    form = DestinationForm(request.POST or None, instance=cart_order)
+
+    if request.method == 'POST' and form.is_valid():
+        form.save()
+        return redirect('order_confirmation')
+
+    order_items = OrderItem.objects.filter(cart_order__in=cart_orders)
+    if not order_items.exists():
+        messages.info(request, "Your cart is empty.")  # Optional: inform the user
+        return render(request, 'cart_order.html', {
+            'order_items': [],
+            'form': form
+        })
+
+    return render(request, 'cart_order.html', {
+        'order_items': order_items,
+        'form': form
+    })
+    
+def dump_cart(request):
+    sessionid = request.COOKIES.get('sessionid')
+    cart_order = CartOrder.objects.filter(cookie=sessionid, user=request.user, is_open=True).first()
+
+    # Check if the cart_order exists
+    if cart_order:
+        # Delete the found CartOrder
+        cart_order.delete()
+        print("CartOrder deleted.")
+    else:
+        print("No open CartOrder found for deletion.")

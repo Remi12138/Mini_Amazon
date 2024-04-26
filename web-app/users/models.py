@@ -48,12 +48,13 @@ class CartOrder(models.Model):
     is_open = models.BooleanField(default=True)
     des_x = models.IntegerField(null=True, blank=True)
     des_y = models.IntegerField(null=True, blank=True)
-    ups_name = models.CharField(max_length=100, null=True, blank=True) 
+    ups_name = models.CharField(max_length=100, null=True, blank=True)
+    cookie = models.CharField(max_length=100, null=True, blank=True) 
 
 
 class OrderItem(models.Model):
     order_id = models.ForeignKey(Order, on_delete=models.CASCADE, related_name='order_items', null=True, blank=True)
-    cart_order = models.ForeignKey(CartOrder, on_delete=models.CASCADE , null=True, related_name='cart_items')
+    cart_order = models.ForeignKey(CartOrder, on_delete=models.SET_NULL , null=True, related_name='cart_items')
     product = models.ForeignKey(Product, on_delete=models.CASCADE)
     quantity = models.IntegerField(default=1)
     status = models.CharField(max_length=20, choices=[

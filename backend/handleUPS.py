@@ -46,6 +46,7 @@ def toOrderTruck(fd, orderID):
         seqNum = ack_list.add_request()
         ordertruck_msg.seqnum = seqNum
         print("Before send ups: toOrderTruck")
+        print("OrderTruck msg: ", req_msg)
         checkAndSendReq(fd, req_msg, seqNum)
         print("(end send)After send ups: toOrderTruck")
     
@@ -180,4 +181,59 @@ def sendName(fd, Name):
    
         
 
+def update_des(change_row):
+    conn = get_db_connection()
+    if not conn:
+        return 
+    cursor = conn.cursor()
+    
+    try:
+        # Update the order destination 
+        sql_query = '''
+            UPDATE users_order
+            SET des_x = %s, des_y = %s
+            WHERE id = %s;
+        '''
+        # Execute the SQL query
+        cursor.execute(sql_query, [change_row.NewDestination.x, change_row.NewDestination.y, change_row.packageID])
+        conn.commit()
+        print(f"Order ID {change_row.packageID} destination updated to ({change_row.NewDestination.x}, {change_row.NewDestination.y}).")
 
+    except psycopg2.Error as e:
+        # If an error occurs, print an error message and rollback any changes
+        print(f"An error occurred while change the order destination: {e}")
+        conn.rollback()
+
+    finally:
+        # Clean up by closing cursor and connection
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
+def sendEmailErrorUser(adminEmail, adminName, userEmail, userName):
+    api_key = '2b3c16d686e729b76eeacb6ce417b7b1'
+    api_secret = '6c4b3e2da82b3ffb2d3252fd8742ecda'
+    mailjet = Client(auth=(api_key, api_secret), version='v3.1')
+    data = {
+    'Messages': [
+        {
+        "From": {
+            "Email": adminEmail,
+            "Name": adminName,
+        },
+        "To": [
+            {
+            "Email": userEmail,
+            "Name": userName,
+            }
+        ],
+        "Subject": "MiniAmazon Order Confirmation",
+        "TextPart": "Your UPS user name does not exist! Please re-input your UPS name!",
+        "CustomID": "AppGettingStartedTest"
+        }
+    ]
+    }
+    result = mailjet.send.create(data=data)
+    print(result.status_code)
+    print(result.json())    

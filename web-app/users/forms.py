@@ -2,6 +2,8 @@ from django import forms
 from django.contrib.auth.models import User
 from django.contrib.auth.forms import UserCreationForm
 from .models import *
+from django.contrib.auth.forms import AuthenticationForm
+from captcha.fields import CaptchaField
 
 
 class CustomUserCreationForm(UserCreationForm):
@@ -29,3 +31,7 @@ class DestinationForm(forms.ModelForm):
 class UpdateOrderForm(forms.Form):
     order_id = forms.IntegerField(widget=forms.HiddenInput())
     upsUsername = forms.CharField(label='Update UPS Username', max_length=100)      
+
+
+class CaptchaAuthenticationForm(AuthenticationForm):
+    captcha = CaptchaField()

@@ -46,8 +46,20 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     # customized
-    'users.apps.UsersConfig'
+    'users.apps.UsersConfig',
+    'captcha',
 ]
+
+# INSTALLED_APPS = [
+#     'django.contrib.admin',
+#     'django.contrib.auth',
+#     'django.contrib.contenttypes',
+#     'django.contrib.sessions',
+#     'django.contrib.messages',
+#     'django.contrib.staticfiles',
+#     # customized
+#     'users.apps.UsersConfig'
+# ]
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',

@@ -2,6 +2,13 @@
 
 {% block content %}
 <h2>Review Your Cart</h2>
+
+{% if not order_items %}
+<script>
+    alert("Your cart is empty!");  // Alert the user that the cart is empty
+    window.location.href = "{% url 'submit_cart' %}";  // Redirect to a URL that likely allows adding items, via a GET request
+</script>
+{% else %}
 <ul>
     {% for item in order_items %}
     <li>{{ item.product.description }}: {{ item.quantity }} units at ${{ item.product.price }}</li>
@@ -11,6 +18,13 @@
 <form method="post">
     {% csrf_token %}
     {{ form.as_p }}
-    <button type="submit">Submit Order</button>
+    <button type="submit" class="btn btn-success">Submit Order</button>
 </form>
+
+<!-- Button to return to the shopping page using a form -->
+<form action="{% url 'submit_cart' %}" method="get">
+    <button type="submit" class="btn btn-success">Continue Shopping</button>
+</form>
+{% endif %}
+
 {% endblock %}

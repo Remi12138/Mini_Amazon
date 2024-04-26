@@ -4,10 +4,25 @@
   <h2>Login</h2>
   <form method="post">
     {% csrf_token %}
-    {{ form.as_p }}
-    <button type="submit" class = "link2">Login</button>
-    <a href="{% url 'home' %}" class = "link2">Home</a>
+    <!-- Render each form field individually -->
+    <p>
+      {{ form.username.label_tag }}
+      {{ form.username }}
+      {{ form.username.errors }}
+    </p >
+    <p>
+      {{ form.password.label_tag }}
+      {{ form.password }}
+      {{ form.password.errors }}
+    </p >
+    <!-- Include the captcha field -->
+    <p>
+      {{ form.captcha.label_tag }}
+      {{ form.captcha }}
+      {{ form.captcha.errors }}
+    </p >
+    
+    <button type="submit" class="link2">Login</button>
+    <a href="{%url 'home' %}" class="link2">Home</a >
   </form>
 {% endblock %}
-
-
